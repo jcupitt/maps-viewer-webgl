@@ -20,6 +20,7 @@ function initShaders() {
 var View = function(canvas, basename) {
     this.canvas = canvas;
     this.basename = basename;
+    canvas.view = this;
 
     // the position of the top-left corner of the canvas within the larger image
     // we display
@@ -74,8 +75,6 @@ var View = function(canvas, basename) {
         this.fetch(); 
     };
 
-    Mouse.attach(canvas);
-
     initGL(canvas);
     initShaders();
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -96,6 +95,50 @@ var View = function(canvas, basename) {
     mat4.translate(mvMatrix, [0, 0, -1]);
 
     setShaderProgram(shaderPrograms[0]);
+
+    this.left_down = false;
+    canvas.addEventListener('mousedown', function(event) {
+        if (event.button == 0) {
+            canvas.view.left_down = true;
+            canvas.view.drag_start_left = event.x;
+            canvas.view.drag_start_top = event.y;
+            canvas.view.drag_start_viewport_left = canvas.view.viewport_left;
+            canvas.view.drag_start_viewport_top = canvas.view.viewport_top;
+        }
+    });
+    canvas.addEventListener('mouseup', function(event) {
+        if (event.button == 0) {
+            canvas.view.left_down = false;
+        }
+    });
+    canvas.addEventListener('mouseleave', function(event) {
+        canvas.view.left_down = false;
+    });
+    canvas.addEventListener('mousemove', function(event) {
+        if (canvas.view.left_down) {
+
+            var relative_x = event.x - canvas.view.drag_start_left;
+            var relative_y = event.y - canvas.view.drag_start_top;
+            var new_x = canvas.view.drag_start_viewport_left - relative_x;
+            var new_y = canvas.view.drag_start_viewport_top - relative_y;
+
+            canvas.view.setPosition(new_x, new_y);
+            canvas.view.fetch();
+            canvas.view.draw();
+        }
+    });
+    canvas.addEventListener('mousewheel', function(event) {
+        if (event.wheelDelta > 0) {
+            canvas.view.setLayer(canvas.view.layer + 1);
+        }
+        else {
+            canvas.view.setLayer(canvas.view.layer - 1);
+        }
+
+        canvas.view.fetch();
+        canvas.view.draw();
+    });
+
 };
 
 View.prototype.constructor = View;
@@ -159,7 +202,7 @@ View.prototype.tileURL = function(z, x, y) {
     return this.basename + "/" + z + "/" + y + "/" + x + ".jpg";
 };
 
-View.prototype.drawTile = function(tile_size, tile) {
+View.prototype.drawTile = function(tile, tile_size) {
     var x = tile.tile_left * tile_size - this.viewport_left;
     var y = tile.tile_top * tile_size - this.viewport_top;
 
@@ -174,7 +217,7 @@ View.prototype.drawTile = function(tile_size, tile) {
     gl.vertexAttribPointer(currentProgram.vertexPositionAttribute, 
         this.position_buffer.itemSize, gl.FLOAT, false, 0, 0);
 
-    gl.uniform1f(currentProgram.tileSizeUniform, this.tile_size);
+    gl.uniform1f(currentProgram.tileSizeUniform, tile_size);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, tile);
@@ -222,7 +265,7 @@ View.prototype.drawCachedTile = function(tile_size, z, x, y) {
     if (tile) {
         console.log("drawCachedTile: " + 
             z + ", " + tile_left + ", " + tile_top);
-        this.drawTile(tile_size, tile);
+        this.drawTile(tile, tile_size);
     }
 }
 

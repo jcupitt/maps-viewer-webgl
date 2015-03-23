@@ -7,5 +7,5 @@ function attach_view() {
 
     view = new View(canvas, "nina");
     view.setLayer(3);
-    view.setPosition(150, 50);
+    view.setPosition(0, 0);
 }
