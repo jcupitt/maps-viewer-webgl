@@ -166,8 +166,7 @@ View.prototype.loadProperties = function(filename) {
     this.request = new XMLHttpRequest();
     this.request.view = this;
     this.request.onload = function() {
-        if (this.status == 0 &&
-            this.responseXML != null) {
+        if (this.responseXML != null) {
             var view = this.view;
 
             // document::image::properties::property
