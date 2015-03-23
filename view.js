@@ -10,6 +10,9 @@ function initShaders() {
 
     shaderPrograms[0] = getProgram("shader-fs-rti", "shader-vs-rti");
 
+    shaderPrograms[0].textureCoordAttribute = 
+        gl.getAttribLocation(shaderPrograms[0], "aTextureCoord");
+
     shaderPrograms[0].tileSizeUniform = 
         gl.getUniformLocation(shaderPrograms[0], "uTileSize");
     shaderPrograms[0].tileTextureUniform = 
@@ -60,6 +63,7 @@ var View = function(canvas, basename) {
         var height = this.properties.height;
         for (var i = this.n_layers - 1; i >= 0; i--) {
             this.layer_properties[i] = {
+                'shrink': 1 << (this.n_layers - i - 1),
                 'width': width,
                 'height': height,
                 'tiles_across': (round_up(width, this.tile_size) / 
@@ -79,13 +83,10 @@ var View = function(canvas, basename) {
     initShaders();
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
 
-    // we draw tiles as single textured points at a certain x, y
-    this.position = new Float32Array(2); 
-    this.position_buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.position_buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, this.position, gl.DYNAMIC_DRAW);
-    this.position_buffer.itemSize = 2;
-    this.position_buffer.numItems = 1;
+    // we draw tiles as 1x1 squares, scaled, translated and textured
+    var vertices = [[1, 1], [1, 0], [0, 1], [0, 0]]; 
+    this.buffers = buffersCreate(vertices);
+    this.texture_coords_buffer = this.buffers; 
 
     gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -128,12 +129,26 @@ var View = function(canvas, basename) {
         }
     });
     canvas.addEventListener('mousewheel', function(event) {
+        var view = canvas.view;
+        var layer = view.layer;
+        var x = (event.x + view.viewport_left) * 
+            view.layer_properties[layer].shrink;
+        var y = (event.y + view.viewport_top) *
+            view.layer_properties[layer].shrink;
+
         if (event.wheelDelta > 0) {
-            canvas.view.setLayer(canvas.view.layer + 1);
+            layer += 1;
         }
         else {
-            canvas.view.setLayer(canvas.view.layer - 1);
+            layer -= 1;
         }
+
+        view.setLayer(layer);
+        layer = view.layer;
+
+        var new_x = x / view.layer_properties[layer].shrink - event.x;
+        var new_y = y / view.layer_properties[layer].shrink - event.y;
+        view.setPosition(new_x, new_y); 
 
         canvas.view.fetch();
         canvas.view.draw();
@@ -190,10 +205,29 @@ View.prototype.loadProperties = function(filename) {
 } 
 
 View.prototype.setLayer = function(layer) {
+    console.log("setLayer: " + layer);
+    if (this.n_layers) { 
+        layer = Math.max(layer, 0);
+        layer = Math.min(layer, this.n_layers - 1);
+    }
+
     this.layer = layer;
 };
 
 View.prototype.setPosition = function(viewport_left, viewport_top) {
+    if (this.layer_properties &&
+        this.layer_properties[this.layer]) { 
+        var layer_width = this.layer_properties[this.layer].width;
+        var layer_height = this.layer_properties[this.layer].height;
+
+        viewport_left = Math.max(viewport_left, 0);
+        viewport_left = Math.min(viewport_left, 
+                layer_width - this.viewport_width); 
+        viewport_top = Math.max(viewport_top, 0);
+        viewport_top = Math.min(viewport_top, 
+                layer_height - this.viewport_height); 
+    }
+
     this.viewport_left = viewport_left;
     this.viewport_top = viewport_top;
 };
@@ -206,24 +240,29 @@ View.prototype.drawTile = function(tile, tile_size) {
     var x = tile.tile_left * tile_size - this.viewport_left;
     var y = tile.tile_top * tile_size - this.viewport_top;
 
+    mvPushMatrix();
+
+    mat4.translate(mvMatrix, [x, this.viewport_height - y - tile_size, 0]); 
+    mat4.scale(mvMatrix, [tile_size, tile_size, 1]);
     setMatrixUniforms();
-
-    this.position[0] = x + tile_size / 2;
-    this.position[1] = this.viewport_height - (y + tile_size / 2);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.position_buffer);
-    gl.bufferSubData(gl.ARRAY_BUFFER, this.position_buffer, this.position);
-    gl.enableVertexAttribArray(currentProgram.vertexPositionAttribute);
-    gl.vertexAttribPointer(currentProgram.vertexPositionAttribute, 
-        this.position_buffer.itemSize, gl.FLOAT, false, 0, 0);
-
-    gl.uniform1f(currentProgram.tileSizeUniform, tile_size);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, tile);
     gl.uniform1i(currentProgram.tileTextureUniform, 0);
 
-    gl.drawArrays(gl.POINTS, 0, this.position_buffer.numItems);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.texture_coords_buffer);
+    gl.enableVertexAttribArray(currentProgram.textureCoordAttribute);
+    gl.vertexAttribPointer(currentProgram.textureCoordAttribute, 
+        this.texture_coords_buffer.itemSize, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers);
+    gl.enableVertexAttribArray(currentProgram.vertexPositionAttribute);
+    gl.vertexAttribPointer(currentProgram.vertexPositionAttribute, 
+        this.buffers.itemSize, gl.FLOAT, false, 0, 0);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.buffers.numItems);
+
+    mvPopMatrix();
 };
 
 // get a tile from cache

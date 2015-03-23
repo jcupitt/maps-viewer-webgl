@@ -10,27 +10,31 @@
 
 <script id="shader-vs-rti" type="x-shader/x-vertex">
     attribute vec2 aVertexPosition;
+    attribute vec2 aTextureCoord;
 
     uniform mat4 uMVMatrix;
     uniform mat4 uPMatrix;
-    uniform float uTileSize;
+
+    varying lowp vec2 vTextureCoord;
 
     void main(void) {
         gl_Position = 
             uPMatrix * uMVMatrix * vec4(aVertexPosition, 0.0, 1.0);
-
-        gl_PointSize = uTileSize;
+	vTextureCoord = aTextureCoord;
     }
 </script>
 
 <script id="shader-fs-rti" type="x-shader/x-fragment">
-	precision lowp float;
+    precision lowp float;
 
-	uniform sampler2D uTileTexture;
+    varying lowp vec2 vTextureCoord;
 
-	void main(void) {
-		gl_FragColor = texture2D(uTileTexture, gl_PointCoord);
-	}
+    uniform sampler2D uTileTexture;
+
+    void main(void) {
+        gl_FragColor = texture2D(uTileTexture, 
+           vec2(vTextureCoord.s, vTextureCoord.t));
+    }
 </script>
 </head>
 

@@ -13,6 +13,4 @@ vips dzsave /data/john/pics/nina.jpg nina --layout google --properties
 
 # TODO
 
-* need to draw squares, points are being clipped
-
 * LRU for cache ejection, though always keep layer 0
