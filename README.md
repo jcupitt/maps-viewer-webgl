@@ -19,6 +19,4 @@ vips dzsave /data/john/pics/nina.jpg nina --layout google --properties
 
 * LRU for cache ejection, though always keep layer 0
 
-* get the xml meta from nina/nina/vips-properties.xml
-
 * simple pan and zoom for testing

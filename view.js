@@ -28,13 +28,51 @@ var View = function(canvas, basename) {
     this.viewport_width = canvas.width;
     this.viewport_height = canvas.height;
 
-    // magnification layer .. 0 is zoomed out, then x2 for each layer higher
+    // magnification layer .. 0 is zoomed out so the image fits in a tile,
+    // then each +1 is a x2 layer larger
     this.layer = 0;
+
+    // for each layer, the number of tiles in each direction ... we build this
+    // when we've loaded the xml
+    this.layer_properties = {}
 
     // index by layer, tile_y_number, tile_x_number
     this.cache = {};
 
     this.tile_size = 256;
+
+    this.loadProperties(basename + "/" + basename + 
+        "/vips-properties.xml");
+    this.properties.onload = function() {
+        // repeated round-down x2 shrink until we fit in a tile
+        var width = this.properties.width;
+        var height = this.properties.height;
+        this.n_layers = 1;
+        while (width > this.tile_size ||
+            height > this.tile_size) {
+            width = (width / 2) | 0;
+            height = (height / 2) | 0;
+            this.n_layers += 1;
+        }
+
+        var width = this.properties.width;
+        var height = this.properties.height;
+        for (var i = this.n_layers - 1; i >= 0; i--) {
+            this.layer_properties[i] = {
+                'width': width,
+                'height': height,
+                'tiles_across': ((width + width % this.tile_size) / 
+                        this.tile_size) | 0,
+                'tiles_down': ((height + height % this.tile_size) / 
+                        this.tile_size) | 0
+            };
+            width = (width / 2) | 0;
+            height = (height / 2) | 0;
+        }
+
+        // fetch tiles for this view
+        this.fetch(); 
+    };
 
     Mouse.attach(canvas);
 
@@ -62,6 +100,52 @@ var View = function(canvas, basename) {
 
 View.prototype.constructor = View;
 
+View.prototype.loadProperties = function(filename) {
+    if (this.request) {
+        return;
+    }
+
+    this.properties = {};
+    this.request = new XMLHttpRequest();
+    this.request.view = this;
+    this.request.onload = function() {
+        if (this.status == 0 &&
+            this.responseXML != null) {
+            var view = this.view;
+
+            // document::image::properties::property
+            var props = this.responseXML.documentElement.children[0].children;
+
+            for (var i = 0; i < props.length; i++) {
+                var prop = props[i];
+                var name = prop.children[0].textContent;
+                var value = prop.children[1];
+                var type = value.attributes[0];
+
+                var value_parsed;
+                if (type.name == "type" &&
+                    type.value == "gint") {
+                    value_parsed = parseInt(value.textContent);
+                }
+                else {
+                    value_parsed = value.textContent;
+                }
+
+                view.properties[name] = value_parsed;
+            }
+
+            if (view.properties.onload) {
+                view.properties.onload.call(view);
+            }
+        }
+        else {
+            alert("unable to load image properties");
+        }
+    };
+    this.request.open("GET", filename);
+    this.request.send();
+} 
+
 View.prototype.setLayer = function(layer) {
     this.layer = layer;
 };
@@ -71,8 +155,8 @@ View.prototype.setPosition = function(viewport_left, viewport_top) {
     this.viewport_top = viewport_top;
 };
 
-View.prototype.tileURL = function(x, y) {
-    return this.basename + "/" + this.layer + "/" + y + "/" + x + ".jpg";
+View.prototype.tileURL = function(z, x, y) {
+    return this.basename + "/" + z + "/" + y + "/" + x + ".jpg";
 };
 
 View.prototype.drawTile = function(tile) {
@@ -101,34 +185,43 @@ View.prototype.drawTile = function(tile) {
 };
 
 // get a tile from cache
-View.prototype.fetchAndDrawTile = function(x, y) {
+View.prototype.getTile = function(z, x, y) {
+    if (!this.cache[z]) {
+        this.cache[z] = {};
+    }
+    var layer = this.cache[z];
+
+    if (!layer[y]) {
+        layer[y] = {};
+    }
+    var row = layer[y];
+
+    return row[x];
+}
+
+// set a tile in cache
+View.prototype.setTile = function(z, x, y, tile) {
+    if (!this.cache[z]) {
+        this.cache[z] = {};
+    }
+    var layer = this.cache[z];
+
+    if (!layer[y]) {
+        layer[y] = {};
+    }
+    var row = layer[y];
+
+    row[x] = tile;
+}
+
+// draw a tile from cache
+View.prototype.drawCachedTile = function(z, x, y) {
     var tile_left = (x / this.tile_size) | 0;
     var tile_top = (y / this.tile_size) | 0;
+    var tile = this.getTile(z, tile_left, tile_top);
 
-    if (!this.cache[this.layer]) {
-        this.cache[this.layer] = {};
-    }
-    var layer = this.cache[this.layer];
-
-    if (!layer[tile_top]) {
-        layer[tile_top] = {};
-    }
-    var row = layer[tile_top];
-
-    if (!row[tile_left]) {
-        var tile = loadTexture(this.tileURL(tile_left, tile_top)); 
-
-        tile.tile_left = tile_left;
-        tile.tile_top = tile_top;
-        tile.view = this;
-        tile.onload = function() {
-            tile.view.draw();
-        };
-
-        row[tile_left] = tile;
-    }
-    else {
-        this.drawTile(row[tile_left]);
+    if (tile) {
+        this.drawTile(tile);
     }
 }
 
@@ -146,7 +239,51 @@ View.prototype.draw = function() {
 
     for (var y = start_top; y < bottom; y += this.tile_size) { 
         for (var x = start_left; x < right; x += this.tile_size) { 
-            this.fetchAndDrawTile(x, y); 
+            this.drawCachedTile(this.layer, x, y); 
         }
     }
 };
+
+// fetch a tile into cache
+View.prototype.fetchTile = function(z, x, y) {
+    var tile_left = (x / this.tile_size) | 0;
+    var tile_top = (y / this.tile_size) | 0;
+    var tile = this.getTile(z, tile_left, tile_top);
+
+    if (!tile && 
+        tile_left >= 0 &&
+        tile_top >= 0 &&
+        tile_left < this.layer_properties[z].tiles_across &&
+        tile_top < this.layer_properties[z].tiles_down) {
+        tile = loadTexture(this.tileURL(z, tile_left, tile_top)); 
+        tile.tile_left = tile_left;
+        tile.tile_top = tile_top;
+        tile.view = this;
+        tile.onload = function() {
+            tile.view.draw();
+        };
+
+        this.setTile(z, tile_left, tile_top, tile);
+    }
+}
+
+// fetch the tiles we need to display the current viewport
+View.prototype.fetch = function() {
+    // move left and up to tile boundary
+    var start_left = 
+        ((this.viewport_left / this.tile_size) | 0) * this.tile_size;
+    var start_top = 
+        ((this.viewport_top / this.tile_size) | 0) * this.tile_size;
+    var right = this.viewport_left + this.viewport_width;
+    var bottom = this.viewport_top + this.viewport_height;
+
+    for (var y = start_top; y < bottom; y += this.tile_size) { 
+        for (var x = start_left; x < right; x += this.tile_size) { 
+            this.fetchTile(this.layer, x, y); 
+        }
+    }
+
+    // we may have some already ... draw them
+    this.draw();
+};
+
