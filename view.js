@@ -196,7 +196,7 @@ View.prototype.loadProperties = function(filename) {
             }
         }
         else {
-            alert("unable to load image properties from " + filename);
+            alert("unable to load properties from " + filename ", response is " + this);
         }
     };
     this.request.open("GET", filename);
