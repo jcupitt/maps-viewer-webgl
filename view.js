@@ -32,7 +32,6 @@ var View = function(canvas, basename) {
     this.viewport_width = canvas.width;
     this.viewport_height = canvas.height;
 
-    // magnification layer .. 0 is zoomed out so the image fits in a tile,
     // then each +1 is a x2 layer larger
     this.layer = 0;
 
@@ -197,7 +196,7 @@ View.prototype.loadProperties = function(filename) {
             }
         }
         else {
-            alert("unable to load image properties");
+            alert("unable to load image properties from " + filename);
         }
     };
     this.request.open("GET", filename);
