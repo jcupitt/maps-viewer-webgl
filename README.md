@@ -1,6 +1,6 @@
-# dzi-viewer-webgl
+# maps-viewer-webgl
 
-Experimental google maps viewer using webgl for tile rendering.
+Experimental google maps image viewer using webgl for tile rendering.
 
 # Make test image
 
@@ -12,10 +12,6 @@ vips dzsave /data/john/pics/nina.jpg nina --layout google --properties
 ```
 
 # TODO
-
-* draw all tiles intersecting the viewport from layer 0 painters-style
-
-* scale tiles by layer
 
 * LRU for cache ejection, though always keep layer 0
 

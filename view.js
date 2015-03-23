@@ -61,9 +61,9 @@ var View = function(canvas, basename) {
             this.layer_properties[i] = {
                 'width': width,
                 'height': height,
-                'tiles_across': ((width + width % this.tile_size) / 
+                'tiles_across': (round_up(width, this.tile_size) / 
                         this.tile_size) | 0,
-                'tiles_down': ((height + height % this.tile_size) / 
+                'tiles_down': (round_up(height, this.tile_size) / 
                         this.tile_size) | 0
             };
             width = (width / 2) | 0;
@@ -159,8 +159,7 @@ View.prototype.tileURL = function(z, x, y) {
     return this.basename + "/" + z + "/" + y + "/" + x + ".jpg";
 };
 
-View.prototype.drawTile = function(tile) {
-    var tile_size = this.tile_size;
+View.prototype.drawTile = function(tile_size, tile) {
     var x = tile.tile_left * tile_size - this.viewport_left;
     var y = tile.tile_top * tile_size - this.viewport_top;
 
@@ -215,31 +214,39 @@ View.prototype.setTile = function(z, x, y, tile) {
 }
 
 // draw a tile from cache
-View.prototype.drawCachedTile = function(z, x, y) {
-    var tile_left = (x / this.tile_size) | 0;
-    var tile_top = (y / this.tile_size) | 0;
+View.prototype.drawCachedTile = function(tile_size, z, x, y) {
+    var tile_left = (x / tile_size) | 0;
+    var tile_top = (y / tile_size) | 0;
     var tile = this.getTile(z, tile_left, tile_top);
 
     if (tile) {
-        this.drawTile(tile);
+        console.log("drawCachedTile: " + 
+            z + ", " + tile_left + ", " + tile_top);
+        this.drawTile(tile_size, tile);
     }
 }
 
-// draw all tiles in cache
+// scan the cache, drawing all visible tiles from layer 0 down to this layer
 View.prototype.draw = function() {
     console.log("draw");
 
-    // move left and up to tile boundary
-    var start_left = 
-        ((this.viewport_left / this.tile_size) | 0) * this.tile_size;
-    var start_top = 
-        ((this.viewport_top / this.tile_size) | 0) * this.tile_size;
-    var right = this.viewport_left + this.viewport_width;
-    var bottom = this.viewport_top + this.viewport_height;
+    for (var z = 0; z <= this.layer; z++) { 
+        // we draw tiles at this layer at 1:1, tiles above this we double 
+        // tile_size each time
+        var tile_size = this.tile_size << (this.layer - z);
 
-    for (var y = start_top; y < bottom; y += this.tile_size) { 
-        for (var x = start_left; x < right; x += this.tile_size) { 
-            this.drawCachedTile(this.layer, x, y); 
+        // move left and up to tile boundary
+        var start_left = 
+            ((this.viewport_left / tile_size) | 0) * tile_size;
+        var start_top = 
+            ((this.viewport_top / tile_size) | 0) * tile_size;
+        var right = this.viewport_left + this.viewport_width;
+        var bottom = this.viewport_top + this.viewport_height;
+
+        for (var y = start_top; y < bottom; y += tile_size) { 
+            for (var x = start_left; x < right; x += tile_size) { 
+                this.drawCachedTile(tile_size, z, x, y); 
+            }
         }
     }
 };
@@ -250,20 +257,20 @@ View.prototype.fetchTile = function(z, x, y) {
     var tile_top = (y / this.tile_size) | 0;
     var tile = this.getTile(z, tile_left, tile_top);
 
-    if (!tile && 
-        tile_left >= 0 &&
-        tile_top >= 0 &&
-        tile_left < this.layer_properties[z].tiles_across &&
-        tile_top < this.layer_properties[z].tiles_down) {
-        tile = loadTexture(this.tileURL(z, tile_left, tile_top)); 
-        tile.tile_left = tile_left;
-        tile.tile_top = tile_top;
-        tile.view = this;
-        tile.onload = function() {
-            tile.view.draw();
-        };
-
-        this.setTile(z, tile_left, tile_top, tile);
+    if (!tile) { 
+        if (tile_left >= 0 &&
+            tile_top >= 0 &&
+            tile_left < this.layer_properties[z].tiles_across &&
+            tile_top < this.layer_properties[z].tiles_down) {
+            tile = loadTexture(this.tileURL(z, tile_left, tile_top)); 
+            tile.tile_left = tile_left;
+            tile.tile_top = tile_top;
+            tile.view = this;
+            tile.onload = function() {
+                tile.view.draw();
+            };
+            this.setTile(z, tile_left, tile_top, tile);
+        }
     }
 }
 

@@ -131,6 +131,17 @@ function wrap_around(x, limit) {
         return ((x % limit) + limit) % limit;
 }
 
+// round n down to p boundary
+function round_down(n, p) {
+    return n - (n % p);
+}
+
+// round n up to p boundary
+function round_up(n, p) {
+    return round_down(n + p - 1, p);
+}
+
+
 function bufferCreate(type, data) {
     var buf = gl.createBuffer();
     gl.bindBuffer(type, buf);
