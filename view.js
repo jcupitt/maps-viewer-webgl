@@ -43,7 +43,7 @@ var View = function(canvas, basename) {
     this.layer_properties = {}
 
     // index by layer, tile_y_number, tile_x_number
-    this.cache = {};
+    this.cache = [];
 
     this.tile_size = 256;
 
@@ -52,7 +52,10 @@ var View = function(canvas, basename) {
     // we want to keep gpu mem use down, so enough tiles that we can paint the
     // viewport three times over
     this.max_tiles = (3 * (this.viewport_width * this.viewport_height) / 
-        (this.tile_size)) | 0;
+        (this.tile_size * this.tile_size)) | 0;
+
+    // number of tiles at present
+    this.n_tiles = 0;
 
     this.loadProperties(basename + "/" + basename + 
         "/vips-properties.xml");
@@ -276,12 +279,12 @@ View.prototype.drawTile = function(tile, tile_size) {
 // get a tile from cache
 View.prototype.getTile = function(z, x, y) {
     if (!this.cache[z]) {
-        this.cache[z] = {};
+        this.cache[z] = [];
     }
     var layer = this.cache[z];
 
     if (!layer[y]) {
-        layer[y] = {};
+        layer[y] = [];
     }
     var row = layer[y];
 
@@ -297,22 +300,47 @@ View.prototype.getTile = function(z, x, y) {
 // set a tile in cache
 View.prototype.setTile = function(z, x, y, tile) {
     if (!this.cache[z]) {
-        this.cache[z] = {};
+        this.cache[z] = [];
     }
     var layer = this.cache[z];
 
     if (!layer[y]) {
-        layer[y] = {};
+        layer[y] = [];
     }
     var row = layer[y];
 
+    if (!row[x]) {
+        this.n_tiles += 1;
+    }
     row[x] = tile;
     tile.time = this.time;
+}
+
+// delete a tile
+View.prototype.deleteTile = function(z, x, y, tile) {
+    if (!this.cache[z]) {
+        this.cache[z] = [];
+    }
+    var layer = this.cache[z];
+
+    if (!layer[y]) {
+        layer[y] = [];
+    }
+    var row = layer[y];
+
+    if (row[x]) {
+        this.n_tiles -= 1;
+        delete row[x];
+    }
 }
 
 // scan cache ejecting tiles until we are 20% under max_tiles
 //
 // try to keep tiles in layer 0 and 1, and tiles in the current layer
+View.prototype.trimCache = function() {
+
+
+};
 
 // draw a tile from cache
 View.prototype.drawCachedTile = function(tile_size, z, x, y) {
