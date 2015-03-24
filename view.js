@@ -25,6 +25,9 @@ var View = function(canvas, basename) {
     this.basename = basename;
     canvas.view = this;
 
+    // the current time, in ticks ... use for cache ejection
+    this.time = 0;
+
     // the position of the top-left corner of the canvas within the larger image
     // we display
     this.viewport_left = 0;
@@ -43,6 +46,13 @@ var View = function(canvas, basename) {
     this.cache = {};
 
     this.tile_size = 256;
+
+    // max number of tiles we cache
+    //
+    // we want to keep gpu mem use down, so enough tiles that we can paint the
+    // viewport three times over
+    this.max_tiles = (3 * (this.viewport_width * this.viewport_height) / 
+        (this.tile_size)) | 0;
 
     this.loadProperties(basename + "/" + basename + 
         "/vips-properties.xml");
@@ -80,21 +90,12 @@ var View = function(canvas, basename) {
 
     initGL(canvas);
     initShaders();
-    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.clearColor(1.0, 1.0, 1.0, 1.0);
 
     // we draw tiles as 1x1 squares, scaled, translated and textured
     var vertices = [[1, 1], [1, 0], [0, 1], [0, 0]]; 
     this.buffers = buffersCreate(vertices);
     this.texture_coords_buffer = this.buffers; 
-
-    gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    mat4.ortho(0, gl.viewportWidth, 0, gl.viewportHeight, 0.1, 100, pMatrix);
-    mat4.identity(mvMatrix);
-    mat4.translate(mvMatrix, [0, 0, -1]);
-
-    setShaderProgram(shaderPrograms[0]);
 
     this.left_down = false;
     canvas.addEventListener('mousedown', function(event) {
@@ -208,6 +209,8 @@ View.prototype.loadProperties = function(filename) {
 } 
 
 View.prototype.setLayer = function(layer) {
+    this.time += 1;
+
     console.log("setLayer: " + layer);
     if (this.n_layers) { 
         layer = Math.max(layer, 0);
@@ -218,6 +221,8 @@ View.prototype.setLayer = function(layer) {
 };
 
 View.prototype.setPosition = function(viewport_left, viewport_top) {
+    this.time += 1;
+
     if (this.layer_properties &&
         this.layer_properties[this.layer]) { 
         var layer_width = this.layer_properties[this.layer].width;
@@ -280,7 +285,13 @@ View.prototype.getTile = function(z, x, y) {
     }
     var row = layer[y];
 
-    return row[x];
+    var tile = row[x];
+
+    if (tile) {
+        tile.time = this.time;
+    }
+
+    return tile;
 }
 
 // set a tile in cache
@@ -296,7 +307,12 @@ View.prototype.setTile = function(z, x, y, tile) {
     var row = layer[y];
 
     row[x] = tile;
+    tile.time = this.time;
 }
+
+// scan cache ejecting tiles until we are 20% under max_tiles
+//
+// try to keep tiles in layer 0 and 1, and tiles in the current layer
 
 // draw a tile from cache
 View.prototype.drawCachedTile = function(tile_size, z, x, y) {
@@ -313,7 +329,16 @@ View.prototype.drawCachedTile = function(tile_size, z, x, y) {
 
 // scan the cache, drawing all visible tiles from layer 0 down to this layer
 View.prototype.draw = function() {
-    console.log("draw");
+    this.time += 1;
+
+    gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    setShaderProgram(shaderPrograms[0]);
+
+    mat4.ortho(0, gl.viewportWidth, 0, gl.viewportHeight, 0.1, 100, pMatrix);
+    mat4.identity(mvMatrix);
+    mat4.translate(mvMatrix, [0, 0, -1]);
 
     for (var z = 0; z <= this.layer; z++) { 
         // we draw tiles at this layer at 1:1, tiles above this we double 
@@ -361,6 +386,8 @@ View.prototype.fetchTile = function(z, x, y) {
 
 // fetch the tiles we need to display the current viewport
 View.prototype.fetch = function() {
+    this.time += 1;
+
     // move left and up to tile boundary
     var start_left = 
         ((this.viewport_left / this.tile_size) | 0) * this.tile_size;
