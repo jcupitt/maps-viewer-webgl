@@ -100,8 +100,8 @@ var View = function(canvas, basename) {
     canvas.addEventListener('mousedown', function(event) {
         if (event.button == 0) {
             canvas.view.left_down = true;
-            canvas.view.drag_start_left = event.x;
-            canvas.view.drag_start_top = event.y;
+            canvas.view.drag_start_left = event.clientX;
+            canvas.view.drag_start_top = event.clientY;
             canvas.view.drag_start_viewport_left = canvas.view.viewport_left;
             canvas.view.drag_start_viewport_top = canvas.view.viewport_top;
         }
@@ -116,9 +116,8 @@ var View = function(canvas, basename) {
     });
     canvas.addEventListener('mousemove', function(event) {
         if (canvas.view.left_down) {
-
-            var relative_x = event.x - canvas.view.drag_start_left;
-            var relative_y = event.y - canvas.view.drag_start_top;
+            var relative_x = event.clientX - canvas.view.drag_start_left;
+            var relative_y = event.clientY - canvas.view.drag_start_top;
             var new_x = canvas.view.drag_start_viewport_left - relative_x;
             var new_y = canvas.view.drag_start_viewport_top - relative_y;
 
@@ -128,34 +127,40 @@ var View = function(canvas, basename) {
         }
     });
     canvas.addEventListener('mousewheel', function(event) {
-        var view = canvas.view;
-        var layer = view.layer;
-        var x = (event.x + view.viewport_left) * 
-            view.layer_properties[layer].shrink;
-        var y = (event.y + view.viewport_top) *
-            view.layer_properties[layer].shrink;
-
-        if (event.wheelDelta > 0) {
-            layer += 1;
-        }
-        else {
-            layer -= 1;
-        }
-
-        view.setLayer(layer);
-        layer = view.layer;
-
-        var new_x = x / view.layer_properties[layer].shrink - event.x;
-        var new_y = y / view.layer_properties[layer].shrink - event.y;
-        view.setPosition(new_x, new_y); 
-
-        canvas.view.fetch();
-        canvas.view.draw();
-    });
-
+        canvas.view.mousewheel.call(canvas.view, event);
+    }, false);
+    // different name in ff
+    canvas.addEventListener('DOMMouseScroll', function(event) {
+        canvas.view.mousewheel.call(canvas.view, event);
+    }, false);
 };
 
 View.prototype.constructor = View;
+
+View.prototype.mousewheel = function(event) {
+    // cross-browser wheel delta
+    var delta = Math.max(-1, Math.min(1, (event.wheelDelta || -event.detail)));
+
+    var layer = this.layer;
+    var x = (event.clientX + this.viewport_left) * 
+        this.layer_properties[layer].shrink;
+    var y = (event.clientY + this.viewport_top) *
+        this.layer_properties[layer].shrink;
+
+    layer += delta;
+    this.setLayer(layer);
+    layer = this.layer;
+
+    var new_x = x / this.layer_properties[layer].shrink - event.clientX;
+    var new_y = y / this.layer_properties[layer].shrink - event.clientY;
+    this.setPosition(new_x, new_y); 
+
+    this.fetch();
+    this.draw();
+
+    // prevent scroll handling
+    return false;
+};
 
 View.prototype.loadProperties = function(filename) {
     if (this.request) {
