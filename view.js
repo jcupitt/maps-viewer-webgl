@@ -42,6 +42,10 @@ var View = function(canvas, basename) {
     // when we've loaded the xml
     this.layer_properties = {}
 
+    // all our tiles in a flat array ... use this for things like cache 
+    // ejection
+    this.tiles = []
+
     // index by layer, tile_y_number, tile_x_number
     this.cache = [];
 
@@ -53,9 +57,6 @@ var View = function(canvas, basename) {
     // viewport three times over
     this.max_tiles = (3 * (this.viewport_width * this.viewport_height) / 
         (this.tile_size * this.tile_size)) | 0;
-
-    // number of tiles at present
-    this.n_tiles = 0;
 
     this.loadProperties(basename + "/" + basename + 
         "/vips-properties.xml");
@@ -247,7 +248,7 @@ View.prototype.tileURL = function(z, x, y) {
     return this.basename + "/" + z + "/" + y + "/" + x + ".jpg";
 };
 
-View.prototype.drawTile = function(tile, tile_size) {
+View.prototype.tileDraw = function(tile, tile_size) {
     var x = tile.tile_left * tile_size - this.viewport_left;
     var y = tile.tile_top * tile_size - this.viewport_top;
 
@@ -277,7 +278,7 @@ View.prototype.drawTile = function(tile, tile_size) {
 };
 
 // get a tile from cache
-View.prototype.getTile = function(z, x, y) {
+View.prototype.tileGet = function(z, x, y) {
     if (!this.cache[z]) {
         this.cache[z] = [];
     }
@@ -297,61 +298,103 @@ View.prototype.getTile = function(z, x, y) {
     return tile;
 }
 
-// set a tile in cache
-View.prototype.setTile = function(z, x, y, tile) {
-    if (!this.cache[z]) {
-        this.cache[z] = [];
+// add a tile to the cache
+View.prototype.tileAdd = function(tile) {
+    if (!this.cache[tile.tile_layer]) {
+        this.cache[tile.tile_layer] = [];
     }
-    var layer = this.cache[z];
+    var layer = this.cache[tile.tile_layer];
 
-    if (!layer[y]) {
-        layer[y] = [];
+    if (!layer[tile.tile_top]) {
+        layer[tile.tile_top] = [];
     }
-    var row = layer[y];
+    var row = layer[tile.tile_top];
 
-    if (!row[x]) {
-        this.n_tiles += 1;
+    if (row[tile.tile_left]) {
+        console.log("tile overwritten!?!?!");
     }
-    row[x] = tile;
+
+    row[tile.tile_left] = tile;
     tile.time = this.time;
+    this.tiles.push(tile);
 }
 
-// delete a tile
-View.prototype.deleteTile = function(z, x, y, tile) {
-    if (!this.cache[z]) {
-        this.cache[z] = [];
-    }
-    var layer = this.cache[z];
-
-    if (!layer[y]) {
-        layer[y] = [];
-    }
-    var row = layer[y];
-
-    if (row[x]) {
-        this.n_tiles -= 1;
-        delete row[x];
-    }
+// delete the final tile in the tile list
+View.prototype.tilePop = function() {
+    var tile = this.tiles.pop();
+    console.log("tilePop: " + tile.tile_layer + ", " + tile.tile_left + 
+            ", " + tile.tile_top);
+    var layer = this.cache[tile.tile_layer];
+    var row = layer[tile.tile_top];
+    delete row[tile.tile_left];
 }
 
-// scan cache ejecting tiles until we are 20% under max_tiles
+// if the cache has filled, trim it
 //
 // try to keep tiles in layer 0 and 1, and tiles in the current layer
-View.prototype.trimCache = function() {
+View.prototype.cacheTrim = function() {
+    if (this.tiles.length > this.max_tiles) {
+        var time = this.time;
+        var layer = this.layer;
 
+        var n_tiles = this.tiles.length;
+        for (var i = 0; i < n_tiles; i++) {
+            var tile = this.tiles[i];
 
+            // calculate a "badness" score ... old tiles are bad, tiles 
+            // outside the current layer are very bad, tiles in the top two 
+            // layers are very good
+            tile.score = (time - tile.time) + 
+                100 * Math.abs(layer - tile.layer) -
+                1000 * Math.max(0, 2 - tile.layer);
+        }
+
+        // sort tiles most precious first
+        this.tiles.sort(function(a, b) {
+            return b.score - a.score;
+        });
+
+        while (this.tiles.length > 0.8 * this.max_tiles) {
+            this.tilePop();
+        }
+    }
 };
 
+// fetch a tile into cache
+View.prototype.tileFetch = function(z, x, y) {
+    var tile_left = (x / this.tile_size) | 0;
+    var tile_top = (y / this.tile_size) | 0;
+    var tile = this.tileGet(z, tile_left, tile_top);
+
+    if (!tile) { 
+        if (tile_left >= 0 &&
+            tile_top >= 0 &&
+            tile_left < this.layer_properties[z].tiles_across &&
+            tile_top < this.layer_properties[z].tiles_down) {
+            var new_tile = loadTexture(this.tileURL(z, tile_left, tile_top)); 
+
+            new_tile.view = this;
+            new_tile.tile_left = tile_left;
+            new_tile.tile_top = tile_top;
+            new_tile.tile_layer = z;
+            this.tileAdd(new_tile);
+
+            new_tile.onload = function() {
+                new_tile.view.draw();
+            };
+        }
+    }
+}
+
 // draw a tile from cache
-View.prototype.drawCachedTile = function(tile_size, z, x, y) {
+View.prototype.cacheTileDraw = function(tile_size, z, x, y) {
     var tile_left = (x / tile_size) | 0;
     var tile_top = (y / tile_size) | 0;
-    var tile = this.getTile(z, tile_left, tile_top);
+    var tile = this.tileGet(z, tile_left, tile_top);
 
     if (tile) {
-        console.log("drawCachedTile: " + 
-            z + ", " + tile_left + ", " + tile_top);
-        this.drawTile(tile, tile_size);
+        //console.log("cacheTileDraw: " + z + ", " + tile_left + ", " + tile_top);
+        this.tileDraw(tile, tile_size);
     }
 }
 
@@ -383,37 +426,16 @@ View.prototype.draw = function() {
 
         for (var y = start_top; y < bottom; y += tile_size) { 
             for (var x = start_left; x < right; x += tile_size) { 
-                this.drawCachedTile(tile_size, z, x, y); 
+                this.cacheTileDraw(tile_size, z, x, y); 
             }
         }
     }
 };
 
-// fetch a tile into cache
-View.prototype.fetchTile = function(z, x, y) {
-    var tile_left = (x / this.tile_size) | 0;
-    var tile_top = (y / this.tile_size) | 0;
-    var tile = this.getTile(z, tile_left, tile_top);
-
-    if (!tile) { 
-        if (tile_left >= 0 &&
-            tile_top >= 0 &&
-            tile_left < this.layer_properties[z].tiles_across &&
-            tile_top < this.layer_properties[z].tiles_down) {
-            tile = loadTexture(this.tileURL(z, tile_left, tile_top)); 
-            tile.tile_left = tile_left;
-            tile.tile_top = tile_top;
-            tile.view = this;
-            tile.onload = function() {
-                tile.view.draw();
-            };
-            this.setTile(z, tile_left, tile_top, tile);
-        }
-    }
-}
-
 // fetch the tiles we need to display the current viewport
 View.prototype.fetch = function() {
+    this.cacheTrim();
+
     this.time += 1;
 
     // move left and up to tile boundary
@@ -426,7 +448,7 @@ View.prototype.fetch = function() {
 
     for (var y = start_top; y < bottom; y += this.tile_size) { 
         for (var x = start_left; x < right; x += this.tile_size) { 
-            this.fetchTile(this.layer, x, y); 
+            this.tileFetch(this.layer, x, y); 
         }
     }
 
