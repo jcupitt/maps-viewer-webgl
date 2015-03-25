@@ -54,8 +54,8 @@ var View = function(canvas, basename) {
     // max number of tiles we cache
     //
     // we want to keep gpu mem use down, so enough tiles that we can paint the
-    // viewport three times over
-    this.max_tiles = (3 * (this.viewport_width * this.viewport_height) / 
+    // viewport five times over
+    this.max_tiles = (5 * (this.viewport_width * this.viewport_height) / 
         (this.tile_size * this.tile_size)) | 0;
 
     this.loadProperties(basename + "/" + basename + 
@@ -344,15 +344,27 @@ View.prototype.cacheTrim = function() {
             // calculate a "badness" score ... old tiles are bad, tiles 
             // outside the current layer are very bad, tiles in the top two 
             // layers are very good
-            tile.score = (time - tile.time) + 
-                100 * Math.abs(layer - tile.layer) -
-                1000 * Math.max(0, 2 - tile.layer);
+            tile.badness = (time - tile.time) + 
+                100 * Math.abs(layer - tile.tile_layer) -
+                1000 * Math.max(0, 2 - tile.tile_layer);
         }
 
-        // sort tiles most precious first
+        // sort tiles as most precious first
         this.tiles.sort(function(a, b) {
-            return b.score - a.score;
+            return a.badness - b.badness;
         });
+
+        /*
+        console.log("cacheTrim: after sort, tiles are:")
+        console.log("  layer, left, top, age, badness")
+        for (var i = 0; i < this.tiles.length; i++) {
+            var tile = this.tiles[i];
+
+            console.log("  " + tile.tile_layer + ", " + tile.tile_left + ", " +
+                    tile.tile_top + ", " + (time - tile.time) + 
+                    ", " + tile.badness);
+        }
+         */
 
         while (this.tiles.length > 0.8 * this.max_tiles) {
             this.tilePop();
