@@ -236,21 +236,30 @@ ArghView.prototype.getLayer = function() {
 };
 
 /* Public: set the position of the viewport within the larger image.
+ *
+ * If we are zoomed out far enough that the image is smaller than the viewport,
+ * centre the image.
  */
 ArghView.prototype.setPosition = function(viewport_left, viewport_top) {
     this.time += 1;
 
-    if (this.layer_properties &&
-        this.layer_properties[this.layer]) { 
-        var layer_width = this.layer_properties[this.layer].width;
-        var layer_height = this.layer_properties[this.layer].height;
+    var layer_width = this.layer_properties[this.layer].width;
+    var layer_height = this.layer_properties[this.layer].height;
 
-        viewport_left = Math.max(viewport_left, 0);
-        viewport_left = Math.min(viewport_left, 
-                layer_width - this.viewport_width); 
-        viewport_top = Math.max(viewport_top, 0);
-        viewport_top = Math.min(viewport_top, 
-                layer_height - this.viewport_height); 
+    // constrain to viewport
+    viewport_left = Math.max(viewport_left, 0);
+    viewport_left = Math.min(viewport_left, 
+            layer_width - this.viewport_width); 
+    viewport_top = Math.max(viewport_top, 0);
+    viewport_top = Math.min(viewport_top, 
+            layer_height - this.viewport_height); 
+
+    // if image < viewport, force centre
+    if (layer_width < this.viewport_width) {
+        viewport_left = -(this.viewport_width - layer_width) / 2;
+    }
+    if (layer_height < this.viewport_height) {
+        viewport_top = -(this.viewport_height - layer_height) / 2;
     }
 
     this.viewport_left = viewport_left;

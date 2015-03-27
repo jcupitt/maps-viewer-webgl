@@ -4,11 +4,11 @@
 
 <script type="text/javascript" src="glMatrix-0.js"></script>
 <script type="text/javascript" src="webgl-utils.js"></script>
-<script type="text/javascript" src="util.js"></script>
-<script type="text/javascript" src="view.js"></script>
+<script type="text/javascript" src="arghview.js"></script>
+<script type="text/javascript" src="harness.js"></script>
 <script type="text/javascript" src="main.js"></script>
 
-<script id="shader-vs-rti" type="x-shader/x-vertex">
+<script id="shader-vs-argh" type="x-shader/x-vertex">
     attribute vec2 aVertexPosition;
     attribute vec2 aTextureCoord;
 
@@ -24,7 +24,7 @@
     }
 </script>
 
-<script id="shader-fs-rti" type="x-shader/x-fragment">
+<script id="shader-fs-argh" type="x-shader/x-fragment">
     precision lowp float;
 
     varying lowp vec2 vTextureCoord;
