@@ -79,9 +79,11 @@ var ArghView = function(canvas, tileURL, max_size, tileSize, num_resolutions) {
     // max number of tiles we cache
     //
     // we want to keep gpu mem use down, so enough tiles that we can paint the
-    // viewport three times over
-    this.max_tiles = (3 * (this.viewport_width * this.viewport_height) / 
-        (tileSize.w * tileSize.h)) | 0;
+    // viewport three times over ... consider a 258x258 viewport with 256x256
+    // tiles, we'd need up to 9 tiles to paint it once
+    var tiles_across = 1 + Math.ceil(this.viewport_width / tileSize.w);
+    var tiles_down = 1 + Math.ceil(this.viewport_height / tileSize.h);
+    this.max_tiles = 3 * tiles_across * tiles_down; 
 
     this.initGL();
 
@@ -361,15 +363,27 @@ ArghView.prototype.cacheTrim = function() {
             // calculate a "badness" score ... old tiles are bad, tiles 
             // outside the current layer are very bad, tiles in the top two 
             // layers are very good
-            tile.score = (time - tile.time) + 
-                100 * Math.abs(layer - tile.layer) -
-                1000 * Math.max(0, 2 - tile.layer);
+            tile.badness = (time - tile.time) + 
+                100 * Math.abs(layer - tile.tile_layer) -
+                1000 * Math.max(0, 2 - tile.tile_layer);
         }
 
         // sort tiles most precious first
         this.tiles.sort(function(a, b) {
-            return b.score - a.score;
+            return a.badness - b.badness;
         });
+
+        /*
+        console.log("cacheTrim: after sort, tiles are:")
+        console.log("  layer, left, top, age, badness")
+        for (var i = 0; i < this.tiles.length; i++) {
+            var tile = this.tiles[i];
+
+            console.log("  " + tile.tile_layer + ", " + tile.tile_left + ", " +
+                tile.tile_top + ", " + (time - tile.time) + 
+                ", " + tile.badness);
+        }
+         */
 
         while (this.tiles.length > 0.8 * this.max_tiles) {
             this.tilePop();
@@ -450,9 +464,6 @@ ArghView.prototype.draw = function() {
 
     this.time += 1;
 
-    gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
     mat4.ortho(0, gl.viewportWidth, 0, gl.viewportHeight, 0.1, 100, 
         this.pMatrix);
     mat4.identity(this.mvMatrix);
@@ -482,9 +493,17 @@ ArghView.prototype.draw = function() {
 
 // fetch the tiles we need to display the current viewport, and draw it
 ArghView.prototype.fetch = function() {
-    this.cacheTrim();
+    var gl = this.gl;
 
     this.time += 1;
+
+    /* Clear before fetch, not before draw. Each fetch can result in many draw
+     * passes as tiles arrive, we don't want to wipe each time.
+     */
+    gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    this.cacheTrim();
 
     // move left and up to tile boundary
     var start_left = 
