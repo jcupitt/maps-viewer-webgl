@@ -4,31 +4,27 @@
  * TODO:
  *
  * - support rotate
- * - add a .reload() method to throw away and reload everything after swapping
- *   the image
- * - need to center the image within the canvas if it's smaller
  * - need methods to translate between clientX/Y coordinates and image cods
  * - could support morph animations?
  * - need to support richer fragment shaders, eg. RTI
- *
+ * - put the shader source in this file
  */
 
 'use strict';
 
-/* Parameters are matched tto iipmooviewer:
+/* Make a new view oject.
+ *
  * canvas: the thing we create the WebGL context on ... we fill this with pixels
- * tileURL: function(z, x, y){} ... makes a URL to fetch a tile from
- * max_size: {w: .., h: ..} ... the dimensions of the largest layer, in pixels
- * tileSize: {w: .., h: ..} ... size of a tile, in pixels
- * num_resolutions: int ... number of layers
  */
-var ArghView = function(canvas, tileURL, max_size, tileSize, num_resolutions) {
+var ArghView = function(canvas) {
     this.canvas = canvas;
-    this.tileURL = tileURL;
-    this.max_size = max_size;
-    this.tileSize = tileSize;
-    this.num_resolutions = num_resolutions;
     canvas.arghView = this;
+
+    // .set by setSorce() below
+    this.tileURL = null;
+    this.max_size = null;
+    this.tileSize = null;
+    this.num_resolutions = null;
 
     // the current time, in ticks ... use for cache ejection
     this.time = 0;
@@ -43,31 +39,8 @@ var ArghView = function(canvas, tileURL, max_size, tileSize, num_resolutions) {
     // then each +1 is a x2 layer larger
     this.layer = 0;
 
-    // round n down to p boundary
-    function round_down(n, p) {
-        return n - (n % p);
-    }
-
-    // round n up to p boundary
-    function round_up(n, p) {
-        return round_down(n + p - 1, p);
-    }
-
-    // need to calculate this from metadata ^^ above 
+    // this gets populated once we know the tile source, see below
     this.layer_properties = []
-    var width = max_size.w;
-    var height = max_size.h;
-    for (var i = num_resolutions - 1; i >= 0; i--) {
-        this.layer_properties[i] = {
-            shrink: 1 << (num_resolutions - i - 1),
-            width: width,
-            height: height,
-            tiles_across: (round_up(width, tileSize.w) / tileSize.w) | 0,
-            tiles_down: (round_up(height, tileSize.h) / tileSize.h) | 0
-        };
-        width = (width / 2) | 0;
-        height = (height / 2) | 0;
-    }
 
     // all our tiles in a flat array ... use this for things like cache 
     // ejection
@@ -76,59 +49,40 @@ var ArghView = function(canvas, tileURL, max_size, tileSize, num_resolutions) {
     // index by layer, tile_y_number, tile_x_number
     this.cache = [];
 
-    // max number of tiles we cache
-    //
-    // we want to keep gpu mem use down, so enough tiles that we can paint the
-    // viewport three times over ... consider a 258x258 viewport with 256x256
-    // tiles, we'd need up to 9 tiles to paint it once
-    var tiles_across = 1 + Math.ceil(this.viewport_width / tileSize.w);
-    var tiles_down = 1 + Math.ceil(this.viewport_height / tileSize.h);
-    this.max_tiles = 3 * tiles_across * tiles_down; 
+    // max number of tiles we cache, set once we have a tile source
+    this.max_tiles = 0;
 
     this.initGL();
-
 };
 
 ArghView.prototype.constructor = ArghView;
 
-ArghView.prototype.getShader = function(id) {
-    var gl = this.gl;
+ArghView.prototype.vertex_shader_source = 
+"    attribute vec2 aVertexPosition; " +
+"    attribute vec2 aTextureCoord; " +
+" " +
+"    uniform mat4 uMVMatrix; " +
+"    uniform mat4 uPMatrix; " +
+" " +
+"    varying lowp vec2 vTextureCoord; " +
+" " +
+"    void main(void) { " +
+"        gl_Position = " +
+"            uPMatrix * uMVMatrix * vec4(aVertexPosition, 0.0, 1.0); " +
+"	     vTextureCoord = aTextureCoord; " +
+"   }";
 
-    var shaderScript = document.getElementById(id);
-    if (!shaderScript) {
-        return null;
-    }
-
-    var str = "";
-    var k = shaderScript.firstChild;
-    while (k) {
-        if (k.nodeType == 3) {
-            str += k.textContent;
-        }
-        k = k.nextSibling;
-    }
-
-    var shader;
-    if (shaderScript.type == "x-shader/x-fragment") {
-        shader = gl.createShader(gl.FRAGMENT_SHADER);
-    } 
-    else if (shaderScript.type == "x-shader/x-vertex") {
-        shader = gl.createShader(gl.VERTEX_SHADER);
-    } 
-    else {
-        return null;
-    }
-
-    gl.shaderSource(shader, str);
-    gl.compileShader(shader);
-
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        alert(gl.getShaderInfoLog(shader));
-        return null;
-    }
-
-    return shader;
-}
+ArghView.prototype.fragment_shader_source = 
+"    precision lowp float; " +
+" " +
+"    varying lowp vec2 vTextureCoord; " +
+" " +
+"    uniform sampler2D uTileTexture; " +
+" " +
+"    void main(void) { " +
+"        gl_FragColor = texture2D(uTileTexture,  " +
+"           vec2(vTextureCoord.s, vTextureCoord.t)); " +
+"    } ";
 
 /* points is a 2D array of like [[x1, y1], [x2, y2], ..], make a 
  * draw buffer.
@@ -180,8 +134,23 @@ ArghView.prototype.initGL = function() {
     gl.viewportWidth = this.canvas.width;
     gl.viewportHeight = this.canvas.height;
 
-    var fragmentShader = this.getShader("shader-fs-argh");
-    var vertexShader = this.getShader("shader-vs-argh");
+    var vertexShader = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vertexShader, this.vertex_shader_source);
+    gl.compileShader(vertexShader);
+
+    if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+        alert(gl.getShaderInfoLog(vertexShader));
+        return;
+    }
+
+    var fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fragmentShader, this.fragment_shader_source);
+    gl.compileShader(fragmentShader);
+
+    if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+        alert(gl.getShaderInfoLog(fragmentShader));
+        return;
+    }
 
     var program = gl.createProgram();
     this.program = program;
@@ -216,6 +185,61 @@ ArghView.prototype.initGL = function() {
 
     gl.clearColor(1.0, 1.0, 1.0, 1.0);
 }
+
+/* Public: set the source for image tiles ... parameters matched to 
+ * iipmooview.
+ *
+ * tileURL: function(z, x, y){} ... makes a URL to fetch a tile from
+ * max_size: {w: .., h: ..} ... the dimensions of the largest layer, in pixels
+ * tileSize: {w: .., h: ..} ... size of a tile, in pixels
+ * num_resolutions: int ... number of layers
+ */
+ArghView.prototype.setSource = function(tileURL, max_size, 
+        tileSize, num_resolutions) {
+    this.tileURL = tileURL;
+    this.max_size = max_size;
+    this.tileSize = tileSize;
+    this.num_resolutions = num_resolutions;
+
+    // round n down to p boundary
+    function round_down(n, p) {
+        return n - (n % p);
+    }
+
+    // round n up to p boundary
+    function round_up(n, p) {
+        return round_down(n + p - 1, p);
+    }
+
+    // need to calculate this from metadata ^^ above 
+    this.layer_properties = []
+    var width = max_size.w;
+    var height = max_size.h;
+    for (var i = num_resolutions - 1; i >= 0; i--) {
+        this.layer_properties[i] = {
+            shrink: 1 << (num_resolutions - i - 1),
+            width: width,
+            height: height,
+            tiles_across: (round_up(width, tileSize.w) / tileSize.w) | 0,
+            tiles_down: (round_up(height, tileSize.h) / tileSize.h) | 0
+        };
+        width = (width / 2) | 0;
+        height = (height / 2) | 0;
+    }
+
+    // max number of tiles we cache
+    //
+    // we want to keep gpu mem use down, so enough tiles that we can paint the
+    // viewport three times over ... consider a 258x258 viewport with 256x256
+    // tiles, we'd need up to 9 tiles to paint it once
+    var tiles_across = 1 + Math.ceil(this.viewport_width / tileSize.w);
+    var tiles_down = 1 + Math.ceil(this.viewport_height / tileSize.h);
+    this.max_tiles = 3 * tiles_across * tiles_down; 
+
+    // throw away any old state
+    this.cache = [];
+    this.tiles = [];
+};
 
 /* Public: set the layer being displayed.
  */

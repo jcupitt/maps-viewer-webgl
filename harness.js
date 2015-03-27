@@ -23,8 +23,9 @@ var View = function(canvas, basename) {
             this.n_layers += 1;
         }
 
-        this.arghview = new ArghView(canvas,
-            this.tileURL.bind(this), 
+        this.arghview = new ArghView(canvas); 
+
+        this.arghview.setSource(this.tileURL.bind(this), 
             {w: this.properties.width, h: this.properties.height},
             {w: this.tile_size, h: this.tile_size},
             this.n_layers);
