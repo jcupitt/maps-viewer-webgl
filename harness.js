@@ -82,9 +82,9 @@ View.prototype.mousewheel = function(event) {
     var delta = Math.max(-1, Math.min(1, (event.wheelDelta || -event.detail)));
 
     var layer = this.arghview.layer;
-    var x = (event.clientX + this.arghview.viewport_left) * 
+    var x = (event.clientX + this.arghview.viewportLeft) * 
         this.arghview.layerProperties[layer].shrink;
-    var y = (event.clientY + this.arghview.viewport_top) *
+    var y = (event.clientY + this.arghview.viewportTop) *
         this.arghview.layerProperties[layer].shrink;
 
     layer += delta;

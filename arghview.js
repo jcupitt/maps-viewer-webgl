@@ -33,7 +33,7 @@ var ArghView = function (canvas) {
     this.viewportWidth = canvas.clientWidth;
     this.viewportHeight = canvas.clientHeight;
 
-    console.log("ArghView: viewportWidth = " + this.viewportWidth + 
+    this.log("ArghView: viewportWidth = " + this.viewportWidth + 
         ", viewportHeight = " + this.viewportHeight);
 
     // from the top-left-hand corner of the image, the distance to move to get
@@ -44,7 +44,7 @@ var ArghView = function (canvas) {
     window.addEventListener('resize', function () {
         this.viewportWidth = this.canvas.clientWidth;
         this.viewportHeight = this.canvas.clientHeight;
-        console.log("ArghView: resize canvas to w = " + this.viewportWidth + 
+        this.log("ArghView: resize canvas to w = " + this.viewportWidth + 
             ", h = " + this.viewportHeight);
 
         // we may need to move the viewport, for example if we've sized the 
@@ -72,6 +72,10 @@ var ArghView = function (canvas) {
 };
 
 ArghView.prototype.constructor = ArghView;
+
+ArghView.prototype.log = function (str) {
+    //console.log(str);
+}
 
 ArghView.prototype.vertexShaderSource = 
 "    attribute vec2 aVertexPosition; " +
@@ -212,7 +216,7 @@ ArghView.prototype.initGL = function () {
  */
 ArghView.prototype.setSource = function (tileURL, maxSize, 
         tileSize, numResolutions) {
-    console.log("ArghView.setSource: ");
+    this.log("ArghView.setSource: ");
 
     this.tileURL = tileURL;
     this.maxSize = maxSize;
@@ -262,7 +266,7 @@ ArghView.prototype.setSource = function (tileURL, maxSize,
 /* Public: set the layer being displayed.
  */
 ArghView.prototype.setLayer = function (layer) {
-    console.log("ArghView.setLayer: " + layer);
+    this.log("ArghView.setLayer: " + layer);
 
     this.time += 1;
 
@@ -270,7 +274,7 @@ ArghView.prototype.setLayer = function (layer) {
     layer = Math.min(layer, this.numResolutions - 1);
     this.layer = layer;
 
-    console.log("  (layer set to " + layer + ")");
+    this.log("  (layer set to " + layer + ")");
 
     // we may need to move the image, for example to change the centreing 
     this.setPosition(this.viewportLeft, this.viewportTop);
@@ -286,14 +290,14 @@ ArghView.prototype.getLayer = function () {
  * centre the image.
  */
 ArghView.prototype.setPosition = function (viewportLeft, viewportTop) {
-    console.log("ArghView.setPosition: " + viewportLeft + ", " + viewportTop);
+    this.log("ArghView.setPosition: " + viewportLeft + ", " + viewportTop);
 
     this.time += 1;
 
     var layerWidth = this.layerProperties[this.layer].width;
     var layerHeight = this.layerProperties[this.layer].height;
 
-    console.log("  (layer size is " + 
+    this.log("  (layer size is " + 
             layerWidth + ", " + layerHeight + ")");
 
     // constrain to viewport
@@ -310,7 +314,7 @@ ArghView.prototype.setPosition = function (viewportLeft, viewportTop) {
         viewportTop = -(this.viewportHeight - layerHeight) / 2;
     }
 
-    console.log("  (position set to " + 
+    this.log("  (position set to " + 
             viewportLeft + ", " + viewportTop + ")");
 
     this.viewportLeft = viewportLeft;
@@ -331,7 +335,7 @@ ArghView.prototype.tileDraw = function (tile, tileSize) {
     var x = tile.tileLeft * tileSize.w - this.viewportLeft;
     var y = tile.tileTop * tileSize.h - this.viewportTop;
 
-    console.log("ArghView.tileDraw: " + tile.tileLayer + ", " +
+    this.log("ArghView.tileDraw: " + tile.tileLayer + ", " +
         tile.tileLeft + ", " + tile.tileTop + " at pixel " +
         "x = " + x + ", y = " + y + 
         ", w = " + tileSize.w + ", h = " + tileSize.h);
@@ -407,7 +411,7 @@ ArghView.prototype.tileAdd = function (tile) {
 // delete the final tile in the tile list
 ArghView.prototype.tilePop = function () {
     var tile = this.tiles.pop();
-    console.log("ArghView.tilePop: " + tile.tileLayer + ", " + tile.tileLeft + 
+    this.log("ArghView.tilePop: " + tile.tileLayer + ", " + tile.tileLeft + 
             ", " + tile.tileTop);
     var layer = this.cache[tile.tileLayer];
     var row = layer[tile.tileTop];
@@ -440,12 +444,12 @@ ArghView.prototype.cacheTrim = function () {
         });
 
         /*
-        console.log("ArghView.cacheTrim: after sort, tiles are:")
-        console.log("  layer, left, top, age, badness")
+        this.log("ArghView.cacheTrim: after sort, tiles are:")
+        this.log("  layer, left, top, age, badness")
         for (var i = 0; i < this.tiles.length; i++) {
             var tile = this.tiles[i];
 
-            console.log("  " + tile.tileLayer + ", " + tile.tileLeft + ", " +
+            this.log("  " + tile.tileLayer + ", " + tile.tileLeft + ", " +
                 tile.tileTop + ", " + (time - tile.time) + 
                 ", " + tile.badness);
         }
@@ -460,7 +464,7 @@ ArghView.prototype.cacheTrim = function () {
 ArghView.prototype.loadTexture = function (url) { 
     var gl = this.gl;
 
-    console.log("ArghView.loadTexture: " + url);
+    this.log("ArghView.loadTexture: " + url);
 
     var tex = gl.createTexture();
 
@@ -475,8 +479,8 @@ ArghView.prototype.loadTexture = function (url) {
     img.src = url;
     img.onload = function () {
         gl.bindTexture(gl.TEXTURE_2D, tex);
-        gl.texImage2D(gl.TEXTURE_2D, 
-        0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, 
+                gl.UNSIGNED_BYTE, img);
 
         if (tex.onload) {
             tex.onload();
@@ -506,11 +510,11 @@ ArghView.prototype.tileFetch = function (z, x, y) {
             this.tileAdd(newTile);
 
             newTile.onload = function () {
-                console.log("ArghView.tileFetch: arrival of " + 
+                this.log("ArghView.tileFetch: arrival of " + 
                         newTile.tileLayer + ", " + newTile.tileLeft + 
                         ", " + newTile.tileTop);
                 newTile.view.draw();
-            };
+            }.bind(this);
         }
     }
 }
@@ -528,7 +532,7 @@ ArghView.prototype.cacheTileDraw = function (tileSize, z, x, y) {
 
 // scan the cache, drawing all visible tiles from layer 0 down to this layer
 ArghView.prototype.draw = function () {
-    console.log("ArghView.draw");
+    this.log("ArghView.draw");
 
     var gl = this.gl;
 
@@ -566,7 +570,7 @@ ArghView.prototype.draw = function () {
 
 // fetch the tiles we need to display the current viewport, and draw it
 ArghView.prototype.fetch = function () {
-    console.log("ArghView.fetch");
+    this.log("ArghView.fetch");
 
     var gl = this.gl;
 
