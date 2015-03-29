@@ -83,16 +83,16 @@ View.prototype.mousewheel = function(event) {
 
     var layer = this.arghview.layer;
     var x = (event.clientX + this.arghview.viewport_left) * 
-        this.arghview.layer_properties[layer].shrink;
+        this.arghview.layerProperties[layer].shrink;
     var y = (event.clientY + this.arghview.viewport_top) *
-        this.arghview.layer_properties[layer].shrink;
+        this.arghview.layerProperties[layer].shrink;
 
     layer += delta;
     this.setLayer(layer);
     layer = this.arghview.layer;
 
-    var new_x = x / this.arghview.layer_properties[layer].shrink - event.clientX;
-    var new_y = y / this.arghview.layer_properties[layer].shrink - event.clientY;
+    var new_x = x / this.arghview.layerProperties[layer].shrink - event.clientX;
+    var new_y = y / this.arghview.layerProperties[layer].shrink - event.clientY;
     this.setPosition(new_x, new_y); 
 
     this.arghview.fetch();
