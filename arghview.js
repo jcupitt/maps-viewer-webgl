@@ -73,8 +73,16 @@ var ArghView = function (canvas) {
 
 ArghView.prototype.constructor = ArghView;
 
-ArghView.prototype.log = function (str) {
-    //console.log(str);
+ArghView.prototype.log = function (str, options) {
+    var options = options || {};
+    var level = options.level || 2;
+
+    // higher numbers mean more important messages  
+    var loggingLevel = 1;
+
+    if (level >= loggingLevel) {
+        console.log(str);
+    }
 }
 
 ArghView.prototype.vertexShaderSource = 
@@ -330,15 +338,15 @@ ArghView.prototype.getPosition = function () {
 // draw a tile at a certain tileSize ... tiles can be drawn very large if we are
 // using a low-res tile as a placeholder while a high-res tile is being loaded
 ArghView.prototype.tileDraw = function (tile, tileSize) {
-
     var gl = this.gl;
+
     var x = tile.tileLeft * tileSize.w - this.viewportLeft;
     var y = tile.tileTop * tileSize.h - this.viewportTop;
 
     this.log("ArghView.tileDraw: " + tile.tileLayer + ", " +
         tile.tileLeft + ", " + tile.tileTop + " at pixel " +
         "x = " + x + ", y = " + y + 
-        ", w = " + tileSize.w + ", h = " + tileSize.h);
+        ", w = " + tileSize.w + ", h = " + tileSize.h, {level: 1});
 
     this.mvPushMatrix();
 
@@ -443,17 +451,15 @@ ArghView.prototype.cacheTrim = function () {
             return a.badness - b.badness;
         });
 
-        /*
-        this.log("ArghView.cacheTrim: after sort, tiles are:")
-        this.log("  layer, left, top, age, badness")
+        this.log("ArghView.cacheTrim: after sort, tiles are:", {level: 1})
+        this.log("  layer, left, top, age, badness", {level: 1})
         for (var i = 0; i < this.tiles.length; i++) {
             var tile = this.tiles[i];
 
             this.log("  " + tile.tileLayer + ", " + tile.tileLeft + ", " +
                 tile.tileTop + ", " + (time - tile.time) + 
-                ", " + tile.badness);
+                ", " + tile.badness, {level: 1});
         }
-         */
 
         while (this.tiles.length > 0.8 * this.maxTiles) {
             this.tilePop();
@@ -507,26 +513,17 @@ ArghView.prototype.tileFetch = function (z, x, y) {
             newTile.tileLeft = tileLeft;
             newTile.tileTop = tileTop;
             newTile.tileLayer = z;
+            newTile.readyToDraw = false;
             this.tileAdd(newTile);
 
             newTile.onload = function () {
                 this.log("ArghView.tileFetch: arrival of " + 
                         newTile.tileLayer + ", " + newTile.tileLeft + 
-                        ", " + newTile.tileTop);
+                        ", " + newTile.tileTop, {level: 1});
+                newTile.readyToDraw = true;
                 newTile.view.draw();
             }.bind(this);
         }
-    }
-}
-
-// draw a tile from cache
-ArghView.prototype.cacheTileDraw = function (tileSize, z, x, y) {
-    var tileLeft = (x / tileSize.w) | 0;
-    var tileTop = (y / tileSize.h) | 0;
-    var tile = this.tileGet(z, tileLeft, tileTop);
-
-    if (tile) {
-        this.tileDraw(tile, tileSize);
     }
 }
 
@@ -562,7 +559,14 @@ ArghView.prototype.draw = function () {
 
         for (var y = startTop; y < bottom; y += tileSize.h) { 
             for (var x = startLeft; x < right; x += tileSize.w) { 
-                this.cacheTileDraw(tileSize, z, x, y); 
+                var tileLeft = (x / tileSize.w) | 0;
+                var tileTop = (y / tileSize.h) | 0;
+                var tile = this.tileGet(z, tileLeft, tileTop);
+
+                if (tile &&
+                    tile.readyToDraw) { 
+                    this.tileDraw(tile, tileSize);
+                }
             }
         }
     }
