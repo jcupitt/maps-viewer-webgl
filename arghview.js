@@ -20,7 +20,7 @@ var ArghView = function (canvas) {
     this.canvas = canvas;
     canvas.arghView = this;
 
-    // .set by setSource() below
+    // set by setSource() below
     this.tileURL = null;
     this.maxSize = null;
     this.tileSize = null;
@@ -40,17 +40,6 @@ var ArghView = function (canvas) {
     // to the top-left-hand corner of the pixels we are displaying
     this.viewportLeft = 0;
     this.viewportTop = 0;
-
-    window.addEventListener('resize', function () {
-        this.viewportWidth = this.canvas.clientWidth;
-        this.viewportHeight = this.canvas.clientHeight;
-        this.log("ArghView: resize canvas to w = " + this.viewportWidth + 
-            ", h = " + this.viewportHeight);
-
-        // we may need to move the viewport, for example if we've sized the 
-        // image larger than the viewport
-        this.setPosition(this.viewportLeft, this.viewportTop);
-    }.bind(this));
 
     // then each +1 is a x2 layer larger
     this.layer = 0;
@@ -78,7 +67,7 @@ ArghView.prototype.log = function (str, options) {
     var level = options.level || 2;
 
     // higher numbers mean more important messages  
-    var loggingLevel = 1;
+    var loggingLevel = 4;
 
     if (level >= loggingLevel) {
         console.log(str);
@@ -211,7 +200,8 @@ ArghView.prototype.initGL = function () {
     this.vertexBuffer = this.bufferCreate([[1, 1], [1, 0], [0, 1], [0, 0]]);
     this.textureCoordsBuffer = this.vertexBuffer; 
 
-    gl.clearColor(1.0, 1.0, 1.0, 1.0);
+    // black background
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
 }
 
 /* Public: set the source for image tiles ... parameters matched to 
@@ -481,9 +471,20 @@ ArghView.prototype.loadTexture = function (url) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+    var tileSize = this.tileSize;
     var img = new Image();
     img.src = url;
     img.onload = function () {
+        // we may have overlaps, or edge tiles may be smaller than tilesize
+        if (img.width != tileSize.w || img.height != tileSize.h) {
+            var canvas = document.createElement("canvas");
+            canvas.width = tileSize.w;
+            canvas.height = tileSize.h;
+            var ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            img = canvas;
+        }
+
         gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, 
                 gl.UNSIGNED_BYTE, img);
@@ -529,19 +530,34 @@ ArghView.prototype.tileFetch = function (z, x, y) {
 
 // scan the cache, drawing all visible tiles from layer 0 down to this layer
 ArghView.prototype.draw = function () {
-    this.log("ArghView.draw");
+    this.log("ArghView.draw: viewportWidth = " + this.viewportWidth + 
+            ", viewportHeight = " + this.viewportHeight);
 
     var gl = this.gl;
 
     this.time += 1;
 
+    // have we resized since the last draw?
+    var width = gl.canvas.clientWidth;
+    var height = gl.canvas.clientHeight;
+    if (gl.canvas.width != width ||
+        gl.canvas.height != height) {
+        gl.canvas.width = width;
+        gl.canvas.height = height;
+        this.viewportWidth = width;
+        this.viewportHeight = height;
+
+        // we may need to recentre
+        this.setPosition(this.viewportLeft, this.viewportTop);
+    }
+
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
     mat4.ortho(0, this.viewportWidth, 0, this.viewportHeight, 0.1, 100, 
         this.pMatrix);
     mat4.identity(this.mvMatrix);
     mat4.translate(this.mvMatrix, [0, 0, -1]);
-
-    gl.viewport(0, 0, this.viewportWidth, this.viewportHeight);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     for (var z = 0; z <= this.layer; z++) { 
         // we draw tiles at this layer at 1:1, tiles above this we double 
