@@ -57,6 +57,9 @@ var ArghView = function (canvas) {
     // max number of tiles we cache, set once we have a tile source
     this.maxTiles = 0;
 
+    // default to 2D rendering
+    this.RTI = false;
+
     this.initGL();
 };
 
@@ -89,7 +92,7 @@ ArghView.prototype.vertexShaderSource =
 "	     vTextureCoord = aTextureCoord; " +
 "   }";
 
-ArghView.prototype.fragmentShaderSource = 
+ArghView.prototype.fragmentShaderSource2D = 
 "    precision lowp float; " +
 " " +
 "    varying lowp vec2 vTextureCoord; " +
@@ -99,6 +102,37 @@ ArghView.prototype.fragmentShaderSource =
 "    void main(void) { " +
 "        gl_FragColor = texture2D(uTileTexture,  " +
 "           vec2(vTextureCoord.s, vTextureCoord.t)); " +
+"    } ";
+
+ArghView.prototype.fragmentShaderSourceRTI = 
+"    precision lowp float; " +
+" " +
+"    varying lowp vec2 vTextureCoord; " +
+" " +
+"    uniform sampler2D uTileTexture; " +
+"    uniform sampler2D uTileTextureH; " +
+"    uniform sampler2D uTileTextureL; " +
+" " +
+"    uniform vec3 uHOffset; " +
+"    uniform vec3 uHScale; " +
+"    uniform vec3 uHWeight; " +
+"    uniform vec3 uLOffset; " +
+"    uniform vec3 uLScale; " +
+"    uniform vec3 uLWeight; " +
+" " +
+"    void main(void) { " +
+"        vec2 pos = vec2(vTextureCoord.s, vTextureCoord.t); " +
+" " +
+"        vec3 colour = texture2D(uTileTexture, pos).xyz; " +
+"        vec3 coeffH = texture2D(uTileTextureH, pos).xyz; " +
+"        vec3 coeffL = texture2D(uTileTextureL, pos).xyz; " +
+" " +
+"        vec3 l3 = (coeffH - uHOffset / 255.0) * uHScale * uHWeight + " +
+"                (coeffL - uLOffset / 255.0) * uLScale * uLWeight; " +
+"        float l = l3.x + l3.y + l3.z; " +
+" " +
+"        colour *= l; " +
+"        gl_FragColor = vec4(colour, 1.0); " +
 "    } ";
 
 /* points is a 2D array of like [[x1, y1], [x2, y2], ..], make a 
@@ -151,50 +185,77 @@ ArghView.prototype.initGL = function () {
     }
     this.gl = gl;
 
-    var vertexShader = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vertexShader, this.vertexShaderSource);
-    gl.compileShader(vertexShader);
+    function compileShader(type, source) {
+        var shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
 
-    if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-        alert(gl.getShaderInfoLog(vertexShader));
-        return;
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            alert(gl.getShaderInfoLog(shader));
+            return null;
+        }
+
+        return shader;
     }
 
-    var fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(fragmentShader, this.fragmentShaderSource);
-    gl.compileShader(fragmentShader);
+    var vertexShader = compileShader(gl.VERTEX_SHADER, this.vertexShaderSource);
+    var fragmentShader2D = 
+        compileShader(gl.FRAGMENT_SHADER, this.fragmentShaderSource2D);
+    var fragmentShaderRTI = 
+        compileShader(gl.FRAGMENT_SHADER, this.fragmentShaderSourceRTI);
 
-    if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-        alert(gl.getShaderInfoLog(fragmentShader));
-        return;
+    function linkProgram(vertexShader, fragmentShader) {
+        var program = gl.createProgram();
+
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            alert("Could not initialise shaders");
+            return null;
+        }
+
+        program.vertexPositionAttribute = 
+            gl.getAttribLocation(program, "aVertexPosition");
+        program.textureCoordAttribute = 
+            gl.getAttribLocation(program, "aTextureCoord");
+
+        program.pMatrixUniform = gl.getUniformLocation(program, "uPMatrix");
+        program.mvMatrixUniform = gl.getUniformLocation(program, "uMVMatrix");
+        program.tileSizeUniform = gl.getUniformLocation(program, "uTileSize");
+        program.tileTextureUniform = 
+            gl.getUniformLocation(program, "uTileTexture");
+
+        return program;
     }
 
-    var program = gl.createProgram();
-    this.program = program;
+    this.program2D = linkProgram(vertexShader, fragmentShader2D);
 
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
+    this.programRTI = linkProgram(vertexShader, fragmentShader2D);
 
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        alert("Could not initialise shaders");
-    }
-
-    program.vertexPositionAttribute = 
-        gl.getAttribLocation(program, "aVertexPosition");
-    program.textureCoordAttribute = 
-        gl.getAttribLocation(program, "aTextureCoord");
-
-    program.pMatrixUniform = gl.getUniformLocation(program, "uPMatrix");
-    program.mvMatrixUniform = gl.getUniformLocation(program, "uMVMatrix");
-    program.tileSizeUniform = gl.getUniformLocation(program, "uTileSize");
-    program.tileTextureUniform = gl.getUniformLocation(program, "uTileTexture");
-
-    gl.useProgram(program);
+    var program = this.programRTI;
+    program.tileTextureHUniform = 
+        gl.getUniformLocation(program, "uTileTextureH");
+    program.tileTextureLUniform = 
+        gl.getUniformLocation(program, "uTileTextureL");
+    program.hOffsetUniform = gl.getUniformLocation(program, "uHOffset");
+    program.hScaleUniform = gl.getUniformLocation(program, "uHScale");
+    program.hWeightUniform = gl.getUniformLocation(program, "uHWeight");
+    program.lOffsetUniform = gl.getUniformLocation(program, "uLOffset");
+    program.lScaleUniform = gl.getUniformLocation(program, "uLScale");
+    program.lWeightUniform = gl.getUniformLocation(program, "uLWeight");
 
     this.pMatrix = mat4.create();
     this.mvMatrix = mat4.create();
     this.mvMatrixStack = [];
+
+    this.hOffset = mat3.create()
+    this.hScale = mat3.create()
+    this.hWeight = mat3.create()
+    this.lOffset = mat3.create()
+    this.lScale = mat3.create()
+    this.lWeight = mat3.create()
 
     // we draw tiles as 1x1 squares, scaled, translated and textured
     this.vertexBuffer = this.bufferCreate([[1, 1], [1, 0], [0, 1], [0, 0]]);
@@ -261,6 +322,12 @@ ArghView.prototype.setSource = function (tileURL, maxSize,
     this.tiles = [];
 };
 
+/* Public: turn on RTI rendering. We default to plain 2D rendering. 
+ */
+ArghView.prototype.setRTI = function (RTI) { 
+    this.RTI = RTI;
+}
+
 /* Public: set the layer being displayed.
  */
 ArghView.prototype.setLayer = function (layer) {
@@ -319,11 +386,28 @@ ArghView.prototype.setPosition = function (viewportLeft, viewportTop) {
     this.viewportTop = viewportTop;
 };
 
-/* Public: get the position of the viewport within the larger image.
+/* Public ... light position in 0 - 1, compute the lighting function.
  */
-ArghView.prototype.getPosition = function () {
-    return {x: this.viewportLeft, y: this.viewportTop};
-};
+ArghView.prototype.setLightPosition = function (x, y) {
+    this.hWeight[0] = x * x;
+    this.hWeight[1] = y * y;
+    this.hWeight[2] = x * y;
+    this.lWeight[0] = x;
+    this.lWeight[1] = y;
+    this.lWeight[2] = 1.0;
+}
+
+/* Public ... set the scale and offset for the H and L images.
+ */
+ArghView.prototype.setScaleOffset = 
+    function (hScale, hOffset, vScale, vOffset) {
+    for (var i = 0; i < 3; i++) {
+        this.hScale[i] = hScale[i];
+        this.hOffset[i] = hOffset[i];
+        this.lScale[i] = lScale[i];
+        this.lOffset[i] = lOffset[i];
+    }
+}
 
 // draw a tile at a certain tileSize ... tiles can be drawn very large if we are
 // using a low-res tile as a placeholder while a high-res tile is being loaded
@@ -345,9 +429,28 @@ ArghView.prototype.tileDraw = function (tile, tileSize) {
     mat4.scale(this.mvMatrix, [tileSize.w, tileSize.h, 1]);
     this.setMatrixUniforms();
 
+    if (this.RTI) {
+        gl.uniformMatrix3fv(this.program.hScaleUniform, false, this.hScale);
+        gl.uniformMatrix3fv(this.program.hOffsetUniform, false, this.hOffset);
+        gl.uniformMatrix3fv(this.program.hWeightUniform, false, this.hWeight);
+        gl.uniformMatrix3fv(this.program.lScaleUniform, false, this.lScale);
+        gl.uniformMatrix3fv(this.program.lOffsetUniform, false, this.lOffset);
+        gl.uniformMatrix3fv(this.program.lWeightUniform, false, this.lWeight);
+    }
+
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, tile);
     gl.uniform1i(this.program.tileTextureUniform, 0);
+
+    if (this.RTI) {
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, tile.tileH);
+        gl.uniform1i(this.program.tileTextureUniformH, 0);
+
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, tile.tileL);
+        gl.uniform1i(this.program.tileTextureUniformL, 0);
+    }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.textureCoordsBuffer);
     gl.enableVertexAttribArray(this.program.textureCoordAttribute);
@@ -549,6 +652,15 @@ ArghView.prototype.draw = function () {
 
         // we may need to recentre
         this.setPosition(this.viewportLeft, this.viewportTop);
+    }
+
+    if (this.RTI) {
+        this.program = this.program2D;
+        gl.useProgram(this.program);
+    }
+    else {
+        this.program = this.programRTI;
+        gl.useProgram(this.program);
     }
 
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
