@@ -6,6 +6,8 @@ import glob
 import logging
 import shutil
 
+import xml.etree.ElementTree as ET
+
 #logging.basicConfig(level = logging.DEBUG)
 from gi.repository import Vips
 
@@ -86,10 +88,26 @@ os.remove(os.path.join(output_dir, "L_pyramid.dzi"))
 os.remove(os.path.join(output_dir, "H_pyramid.dzi"))
 
 print "Writing extra metadata ..."
-with open(os.path.join(output_dir, "rti-data.txt"), "w") as f:
-    for x in scales:
-        f.write(str(x) + " ")
-    f.write("\n")
-    for x in offsets:
-        f.write(str(x) + " ")
-    f.write("\n")
+dzi_file = os.path.join(output_dir, output_dir + ".dzi")
+ET.register_namespace("","http://schemas.microsoft.com/deepzoom/2008")
+tree = ET.parse(dzi_file)
+
+root = tree.getroot()
+rti = ET.Element("RTI", {"format": "lrgb"})
+root.append(rti)
+
+scale = ET.Element("scale")
+text = ""
+for x in scales:
+    text += str(x) + " "
+scale.text = text
+rti.append(scale)
+
+offset = ET.Element("offset")
+text = ""
+for x in offsets:
+    text += str(x) + " "
+offset.text = text
+rti.append(offset)
+
+tree.write(dzi_file, encoding = "utf-8", xml_declaration = True)
