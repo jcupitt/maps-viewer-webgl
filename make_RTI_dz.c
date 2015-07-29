@@ -108,31 +108,6 @@ move_level( const char *dirname, const char *levelname, void *client )
 	return( 0 );
 }
 
-static int
-rmtree_fn( const char *dirname, const char *filename, void *client )
-{
-	char *subname;
-
-	subname = g_build_filename( dirname, filename, NULL );
-	if( g_file_test( subname, G_FILE_TEST_IS_DIR ) ) {
-		if( map_dir( subname, rmtree_fn, NULL ) )
-			return( -1 );
-		printf( "g_rmdir( %s )\n", subname );
-	}
-	else
-		printf( "g_unlink( %s )\n", subname );
-
-	g_free( subname );
-
-	return( 0 );
-}
-
-static int
-rmtree( const char *dirname )
-{
-	return( map_dir( dirname, rmtree_fn, NULL ) );
-}
-
 /* Params are eg.
  *
  * 	@outdir: /home/john/poop
@@ -168,6 +143,41 @@ move_tiles( char *outdir, char *fromdir, char *todir, char *suffix )
 	return( 0 );
 }
 
+static int
+rmtree_fn( const char *dirname, const char *filename, void *client )
+{
+	char *subname;
+
+	subname = g_build_filename( dirname, filename, NULL );
+	if( g_file_test( subname, G_FILE_TEST_IS_DIR ) ) {
+		if( map_dir( subname, rmtree_fn, NULL ) )
+			return( -1 );
+		printf( "g_rmdir( %s )\n", subname );
+	}
+	else
+		printf( "g_unlink( %s )\n", subname );
+
+	g_free( subname );
+
+	return( 0 );
+}
+
+static int
+rmtree( const char *fmt, ... )
+{
+	va_list ap;
+	char *dirname;
+	int result;
+
+	va_start( ap, fmt );
+	dirname = g_strdup_vprintf( fmt, ap ); 
+	result = map_dir( dirname, rmtree_fn, NULL );
+	g_free( dirname ); 
+	va_end( ap ); 
+
+	return( result );
+}
+
 int
 main( int argc, char **argv )
 {
@@ -182,7 +192,6 @@ main( int argc, char **argv )
 	char *basename;
 	VipsImage *image;
 	VipsImage *t;
-	char *subname;
 
 	if( VIPS_INIT( argv[0] ) )
 		vips_error_exit( NULL ); 
@@ -262,21 +271,10 @@ main( int argc, char **argv )
 	move_tiles( argv[2], "H_pyramid_files", basename, "_1" ); 
 	move_tiles( argv[2], "L_pyramid_files", basename, "_2" ); 
 
-	subname = g_build_filename( argv[2], "H_pyramid_files", NULL );
-	rmtree( subname );
-	g_free( subname );
-
-	subname = g_build_filename( argv[2], "L_pyramid_files", NULL );
-	rmtree( subname );
-	g_free( subname );
-
-	subname = g_build_filename( argv[2], "H_pyramid.dzi", NULL );
-	rmtree( subname );
-	g_free( subname );
-
-	subname = g_build_filename( argv[2], "L_pyramid.dzi", NULL );
-	rmtree( subname );
-	g_free( subname );
+	rmtree( "%s/%s", argv[2], "H_pyramid_files" );
+	rmtree( "%s/%s", argv[2], "L_pyramid_files" );
+	rmtree( "%s/%s", argv[2], "H_pyramid.dzi" );
+	rmtree( "%s/%s", argv[2], "L_pyramid.dzi" );
 
 	return( 0 );
 }
