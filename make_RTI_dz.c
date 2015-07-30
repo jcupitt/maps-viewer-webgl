@@ -27,20 +27,20 @@ map_dir( const char *dirname, MapDirFn fn, void *client )
 {
 	GDir *dir;
 	const char *filename;
+	int result;
 
 	if( !(dir = g_dir_open( dirname, 0, NULL )) ) 
 		return( -1 ); 
 
+	result = 0;
 	while( (filename = g_dir_read_name( dir )) ) {
-		if( fn( dirname, filename, client ) ) {
-			g_dir_close( dir );
-			return( -1 );
-		}
+		if( (result = fn( dirname, filename, client )) ) 
+			break;
 	}
 
 	g_dir_close( dir );
 
-	return( 0 );
+	return( result );
 }
 
 typedef struct _MoveTiles {
@@ -66,7 +66,7 @@ move_file( const char *dirname, const char *filename, void *client )
 
 	components = g_regex_split_simple( "(.*).jpeg", filename, 0, 0 );
 	if( strcmp( components[0], filename ) == 0 ) {
-		printf( "match failed\n" ); 
+		vips_error( "move_file", "match failed for %s", filename ); 
 		g_strfreev( components ); 
 		return( -1 );
 	}
@@ -94,18 +94,14 @@ move_level( const char *dirname, const char *levelname, void *client )
 	MoveTiles *mt = (MoveTiles *) client;
 
 	char *subdirname;
+	int result;
 
 	mt->levelname = levelname;
 	subdirname = g_build_filename( dirname, levelname, NULL );
-
-	if( map_dir( subdirname, move_file, mt ) ) {
-		g_free( subdirname );
-		return( -1 ); 
-	}
-
+	result = map_dir( subdirname, move_file, mt );
 	g_free( subdirname );
 
-	return( 0 );
+	return( result );
 }
 
 /* Params are eg.
@@ -125,6 +121,7 @@ move_tiles( char *outdir, char *fromdir, char *todir, char *suffix )
 {
 	MoveTiles mt;
 	char *dirname;
+	int result;
 
 	mt.outdir = outdir;
 	mt.fromdir = fromdir;
@@ -132,15 +129,26 @@ move_tiles( char *outdir, char *fromdir, char *todir, char *suffix )
 	mt.suffix = suffix;
 
 	dirname = g_build_filename( outdir, fromdir, NULL );
-
-	if( map_dir( dirname, move_level, &mt ) ) {
-		g_free( dirname );
-		return( -1 ); 
-	}
-
+	result = map_dir( dirname, move_level, &mt );
 	g_free( dirname );
 
-	return( 0 );
+	return( result );
+}
+
+static int
+rmtree_action( const char *pathname )
+{
+	int result;
+
+	if( g_file_test( pathname, G_FILE_TEST_IS_DIR ) ) 
+		result = g_rmdir( pathname ); 
+	else
+		result = g_unlink( pathname ); 
+
+	if( result )
+		vips_error( "rmtree", "unable to remove %s", pathname );
+
+	return( result );
 }
 
 static int
@@ -149,13 +157,13 @@ rmtree_fn( const char *dirname, const char *filename, void *client )
 	char *subname;
 
 	subname = g_build_filename( dirname, filename, NULL );
+
 	if( g_file_test( subname, G_FILE_TEST_IS_DIR ) ) {
 		if( map_dir( subname, rmtree_fn, NULL ) )
 			return( -1 );
-		printf( "g_rmdir( %s )\n", subname );
 	}
-	else
-		printf( "g_unlink( %s )\n", subname );
+
+	rmtree_action( subname ); 
 
 	g_free( subname );
 
@@ -166,14 +174,80 @@ static int
 rmtree( const char *fmt, ... )
 {
 	va_list ap;
-	char *dirname;
+	char *pathname;
 	int result;
 
 	va_start( ap, fmt );
-	dirname = g_strdup_vprintf( fmt, ap ); 
-	result = map_dir( dirname, rmtree_fn, NULL );
-	g_free( dirname ); 
+	pathname = g_strdup_vprintf( fmt, ap ); 
+	if( g_file_test( pathname, G_FILE_TEST_IS_DIR ) ) 
+		result = map_dir( pathname, rmtree_fn, NULL );
+	if( !result )
+		result = rmtree_action( pathname ); 
+	g_free( pathname ); 
 	va_end( ap ); 
+
+	return( result );
+}
+
+static int
+metadata_copy( FILE *old_fp, FILE *new_fp, double scale[6], double offset[6] )
+{
+	char line[LINE_MAX];
+
+	while( fgets( line, LINE_MAX, old_fp ) ) {
+		if( strcmp( line, "</Image>\n" ) == 0 ) {
+			int i;
+			fprintf( new_fp, "  <RTI format=\"lrgb\">\n" ); 
+			fprintf( new_fp, "   <scale>" ); 
+			for( i = 0; i < 6; i++ )
+				fprintf( new_fp, "%g ", scale[i] ); 
+			fprintf( new_fp, "</scale>\n" ); 
+			fprintf( new_fp, "   <offset>" ); 
+			for( i = 0; i < 6; i++ )
+				fprintf( new_fp, "%g ", offset[i] ); 
+			fprintf( new_fp, "</offset>\n" ); 
+			fprintf( new_fp, "  </RTI>\n" ); 
+		}
+
+		fprintf( new_fp, "%s", line );
+	}
+
+	return( 0 );
+}
+
+static int
+metadata_add( const char *outdir, const char *name, 
+	double scale[6], double offset[6] )
+{
+	char *old_dziname;
+	char *new_dziname;
+	FILE *old_fp;
+	FILE *new_fp;
+	int result;
+
+	result = 0; 
+
+	old_dziname = g_strdup_printf( "%s/%s.dzi", outdir, name );
+	new_dziname = g_strdup_printf( "%s/new_%s.dzi", outdir, name );
+
+	old_fp = vips__file_open_read( old_dziname, NULL, TRUE );
+	new_fp = vips__file_open_write( new_dziname, TRUE );
+	if( !old_fp || 
+		!new_fp )
+		result = -1;
+
+	if( !result )
+		result = metadata_copy( old_fp, new_fp, scale, offset );
+
+	if( !result ) {
+		if( (result = g_rename( new_dziname, old_dziname )) )
+			vips_error( "metadata_add", 
+				"unable to rename %s as %s",
+				old_dziname, new_dziname ); 
+	}
+
+	g_free( old_dziname );
+	g_free( new_dziname );
 
 	return( result );
 }
@@ -199,8 +273,8 @@ main( int argc, char **argv )
 		vips_error_exit( "usage: %s input.ptm output-directory", 
 			argv[0] ); 
 
-	if( !(fp = fopen( argv[1], "rb" )) )
-		vips_error_exit( "unable to open %s\n", argv[1] );
+	if( !(fp = vips__file_open_read( argv[1], NULL, FALSE )) )
+		vips_error_exit( NULL ); 
 
 	fgets( line, LINE_MAX, fp );
 	if( strcmp( line, "PTM_1.2\n" ) != 0 )
@@ -268,13 +342,18 @@ main( int argc, char **argv )
 
 	printf( "combining pyramids ...\n" ); 
 
-	move_tiles( argv[2], "H_pyramid_files", basename, "_1" ); 
-	move_tiles( argv[2], "L_pyramid_files", basename, "_2" ); 
+	if( move_tiles( argv[2], "H_pyramid_files", basename, "_1" ) || 
+		move_tiles( argv[2], "L_pyramid_files", basename, "_2" ) )
+		vips_error_exit( NULL );
 
-	rmtree( "%s/%s", argv[2], "H_pyramid_files" );
-	rmtree( "%s/%s", argv[2], "L_pyramid_files" );
-	rmtree( "%s/%s", argv[2], "H_pyramid.dzi" );
-	rmtree( "%s/%s", argv[2], "L_pyramid.dzi" );
+	if( rmtree( "%s/%s", argv[2], "H_pyramid_files" ) ||
+		rmtree( "%s/%s", argv[2], "L_pyramid_files" ) ||
+		rmtree( "%s/%s", argv[2], "H_pyramid.dzi" ) ||
+		rmtree( "%s/%s", argv[2], "L_pyramid.dzi" ) )
+		vips_error_exit( NULL );
+
+	printf( "writing extra metadata ...\n" ); 
+	metadata_add( argv[2], basename, scale, offset ); 
 
 	return( 0 );
 }
