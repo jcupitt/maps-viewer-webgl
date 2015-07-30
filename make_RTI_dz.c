@@ -19,6 +19,12 @@
 
 #include <vips/vips.h>
 
+/* Windows stdio.h is missing LINE_MAX.
+ */
+#ifndef LINEMAX
+#define LINE_MAX (1024)
+#endif
+
 typedef int (*MapDirFn)( const char *dirname, const char *filename, 
 	void *client );
 
