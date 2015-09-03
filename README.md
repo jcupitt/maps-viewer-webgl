@@ -18,6 +18,23 @@ A DeepZoom RTI image:
 ./make_RTI_dz.py /data/john/pics/ptm/Gertrud_cropped_1109.ptm x
 ```
 
+# libvips and Python install on OS X
+
+`make_RTI_dz.py` uses the Python interface to libvips to make the RTI DeepZoom 
+image. This is simplest to install with homebrew. Go here for homebrew install
+instructions:
+
+  http://brew.sh/
+
+Once brew is working, install libvips with the command:
+
+  brew install vips
+
+It'll take a while. You should now be able to run the `make_RTI_dz.py` script
+as noted above.
+
+# Windows
+
 There's a C version of `make_RTI_dz` as well, this can be useful for
 platforms where Python is hard to get working. Cross-compile from Linux to
 Windows with:
