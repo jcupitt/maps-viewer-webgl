@@ -21,7 +21,7 @@
 
 /* Windows stdio.h is missing LINE_MAX.
  */
-#ifndef LINEMAX
+#ifndef LINE_MAX
 #define LINE_MAX (1024)
 #endif
 
