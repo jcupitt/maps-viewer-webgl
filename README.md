@@ -3,6 +3,16 @@
 Experimental zooming image using webgl for tile rendering. The interface of
 ArghView is supposed to drop easily into iipmooviewer.
 
+# To run
+
+```
+npm install http-sserver
+http-server &
+google-chrome http://127.0.0.1:8080
+```
+
+You can zoom with the mousewheel, but there's no panning.
+
 # Make test image
 
 A regular 2D colour image:
